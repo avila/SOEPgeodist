@@ -1,3 +1,7 @@
+### This script explores the school data. By the end of the script it plots the
+### school data points one a map for every year.
+
+
 ## library -----
 
 library(haven)
@@ -110,18 +114,14 @@ ggsave(filename = glue::glue("output/figs/art_reduziert/time_series_art_reduzier
        width = 8, height = 6, dpi = 150)
 
 
-## save as above, but for all types (art instead of art_reduziert)
+## Schools range year
 
 schools %>%
-  group_by(jahr, bundesland, art_trunc) %>%
-  summarise(n=n()) %>%
-  ggplot(aes(x = jahr, y = n, color = art_trunc)) +
-  geom_line() +
-  geom_point(size=.5) +
-  facet_wrap(~bundesland) +
-  labs(title = "Schools by type / bundesland / year")
-ggsave(filename = glue::glue("output/figs/art_trunc/time_series_art_trunc.png"),
-       width = 8, height = 6, dpi = 150)
+  group_by(bundesland) %>%
+  summarise(
+    ymin = min(jahr),
+    ymax = max(jahr)
+  )
 
 
 ## plot maps ------------
@@ -146,7 +146,7 @@ year_max <- range(schools$jahr)[2]
 #year_max <- year_min + 1
 
 for (year in seq(year_min, year_max)) {
-  for (type in c("art_trunc", "art_reduziert")) {
+  type <- "schultyp"
 
     cat(glue::glue("year: {year}, type: {type}"))
 
@@ -168,5 +168,4 @@ for (year in seq(year_min, year_max)) {
              width = 8, dpi = 150)
     }
     cat(" Done!\n")
-  }
 }

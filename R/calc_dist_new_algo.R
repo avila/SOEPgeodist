@@ -1,4 +1,74 @@
+# load packages -----------------------------------------------------------
+
+library(sf)
+library(haven)
+library(readxl)
+library(dplyr)
 library(ggplot2)
+library(purrr)
+library(tidyr)
+
+# set paths ---------------------------------------------------------------
+
+path_data <- '~/soep-data'
+path_schools <- '~/work/2021-06-16'
+path_states <- '~/transfer/import/2020-02-27'
+
+
+if (Sys.getenv("USERNAME")=="avila") {
+  path_data <- 'data'
+  path_schools <- 'data'
+  path_states <- '##'
+}
+
+# read data ---------------------------------------------------------------
+
+
+## read schools data -----------------------------------------------------------------
+
+schools_raw <- readxl::read_excel(
+  file.path(path_schools, 'schulen_komplett.xlsx'),
+  # manual definition of types to avoid warnings, as
+  # priv_shule_typ was falsely being read as logical
+  # and not text due to missings.
+  col_types = c(art = "text",
+                art_reduziert = "text",
+                bundesland = "text",
+                jahr = "numeric",
+                lat = "numeric",
+                lng = "numeric",
+                loc_hash = "text",
+                name = "text",
+                ort = "text",
+                plz = "text",
+                priv_schule_typ = "text",
+                strasse = "text",
+                traeger = "text")
+) %>% filter(jahr >= 2000)
+
+schooldata <- st_as_sf(schools_raw, coords = c('lng','lat'), crs = 4326) %>%
+  mutate(
+    schultyp = paste(art_reduziert, traeger, sep = "_")
+  )
+
+
+school_types <- unique(schooldata$schultyp)
+st_crs(schooldata)
+
+## read students data ----------------------------------------------------------------
+
+set.seed(123)
+de_cities <- read.csv("data/de.csv") %>%
+  select(city, admin_name, capital, lat, lng) %>%
+  filter((capital %in% c("admin", "primary")) | runif(n())>.80) %>%
+  tidyr::expand_grid(jahr = 2000:2019) %>%
+  mutate(pers_ID = 1) %>%
+  st_as_sf(coords = c('lng','lat'), crs = 4326)
+
+
+de_cities
+st_crs(de_cities)
+
 
 ## example basic data set
 
@@ -63,45 +133,12 @@ calc_dist_to_school_type <- function(school_type, df_ind, df_schools, year) {
   return(df_results)
 }
 
-if (interactive()) {
-  # just a test
-  # (dftest <- calc_dist_to_school_type(
-  #   school_type = school_types[2],
-  #   df_ind = de_cities %>% head(50),
-  #   df_schools = schooldata,
-  #   year = 2010
-  # ))
-
-  # expGrid <- list(school_types=school_types, year=2000:2001)
-  #
-  # final_list_of_dfs <- expGrid %>%
-  #   cross() %>%
-  #   purrr::set_names() %>%
-  #   map(
-  #     .f = ~calc_dist_to_school_type(
-  #       school_type = .x$school_types,
-  #       df_ind = de_cities,
-  #       df_schools = schooldata,
-  #       year = .x$year
-  #     ) %>%
-  #       purrr::reduce(
-  #         left_join,
-  #         by = c("ind_hash", "admin_name", "capital", "geometry", "jahr")
-  #       )
-  #   )
-}
-
-
-
 # Consolidate final data frame ------------------------------------------------------
 
 # nested map ----
-years <- c(2000, 2010, 2015)
+years <- seq(2000, 2019, 1)
 
-
-years <- seq(2000, 2015, 3)
-
-other_final_list_of_frames <-
+final_list_of_frames <-
   map(.x = set_names(years),
       .f = function(x)
         map(.x = school_types,
@@ -121,7 +158,7 @@ other_final_list_of_frames <-
         )
   )
 
-final_df <- other_final_list_of_frames %>%
+final_df <- final_list_of_frames %>%
   purrr::reduce(bind_rows)
 
 
@@ -156,7 +193,28 @@ final_joined_latlon <- final_joined %>%
     lat_school = sf::st_coordinates(.)[,2]
   ) %>% st_drop_geometry()
 
-# plot ------------------------------------------------------------------------------
+
+
+# export excel ----------------------------------------------------------------------
+
+openxlsx::write.xlsx(
+  x = final_df %>% select(-geometry) %>%
+    mutate(across(contains("-dist"), .fns = ~round(.x, digits = 2))),
+  file = "output/data/final_distcalc_germancities_wide.xlsx",
+  overwrite = TRUE
+)
+openxlsx::write.xlsx(
+  x = final_joined_latlon %>%
+    mutate(dist = round(dist, 2)),
+  file = "output/data/final_distcalc_germancities_long.xlsx",
+  overwrite = TRUE
+)
+
+
+# Check ups --------------------------------------------------------------------------
+
+
+## plot ------------------------------------------------------------------------------
 
 ### read shapefile  -----
 
@@ -171,7 +229,7 @@ st_bbox(germany_shp)
 
 ## plot for all years ----
 
-export_plot <- !TRUE
+export_plot <- TRUE
 year_min <- range(schooldata$jahr)[1]
 year_max <- range(schooldata$jahr)[2]
 #year_max <- year_min + 2
@@ -238,11 +296,12 @@ schooldata %>%
   ) +
   geom_line() + geom_point() +
   scale_y_log10() +
-  facet_wrap(~bundesland)
+  facet_wrap(~bundesland) +
+  ggtitle("number of schools by federal state")
 
 
 
-final_joined_latlon %>% as.data.frame() %>%
+p <- final_joined_latlon %>% as.data.frame() %>%
   group_by(bundesland, jahr, schultyp) %>%
   summarise(
     dist_mean = mean(dist, na.rm = FALSE),
@@ -251,38 +310,33 @@ final_joined_latlon %>% as.data.frame() %>%
   ggplot() +
   geom_line(aes(x = jahr, y = dist_mean, col = schultyp)) +
   #geom_line(aes(x = jahr, y = n, col = "n")) +
-  facet_wrap(~bundesland)
+  facet_wrap(~bundesland) +
+  ggtitle("avg distance of schools to fixed city locations")
+p
+ggsave(
+  filename = "output/figs/art_reduziert/fig_average_dist_by_bula_year.png",
+  height = 9, width = 8, dpi = 150
+)
+
 
 final_joined_latlon %>% as.data.frame() %>%
-  group_by(bundesland, jahr) %>%
+  group_by(bundesland, jahr, schultyp) %>%
   summarise(
-    n = n()
-  ) %>%
-  pivot_wider(names_from = "jahr", values_from = "n")
-
-
-schooldata %>% as.data.frame() %>%
-  group_by(bundesland) %>%
-  summarise(jahr_min = min(jahr),
-            jahr_ymax = max(jahr)
+    dist_mean = mean(dist, na.rm = FALSE),
   )
 
 
-
-schooldata %>% filter(
-  bundesland=="hessen",
-  jahr>=2004 & jahr<=2005
-) %>% View
-
-schooldata %>% as.data.frame() %>%
-  filter(
-  bundesland == "hessen"
-) %>%
-  group_by(schultyp, jahr) %>%
+final_joined_latlon %>% as.data.frame() %>%
+  mutate(dist_KM = dist/1e3,2) %>%
+  arrange(jahr) %>%
+  group_by(jahr, bundesland) %>%
   summarise(
-    n=n()
+    mean_dist_KM = mean(dist_KM, na.rm = FALSE) %>% round(2),
   ) %>%
-  pivot_wider(names_from = "jahr", values_from = "n")
+  pivot_wider(names_from = "jahr", values_from = "mean_dist_KM") %>%
+  arrange(bundesland) %>% View()
+ggs
+
 
 
 

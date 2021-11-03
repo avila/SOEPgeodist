@@ -4,8 +4,10 @@ library(sf)
 library(haven)
 library(readxl)
 library(dplyr)
+library(ggplot2)
 
-rm(list = ls())
+#rm(list = ls())
+# instead of using rm(), it is better to go to Session > Restart R (or CTRL+SHIFT+F10)
 
 # set paths ---------------------------------------------------------------
 
@@ -56,10 +58,11 @@ st_crs(schooldata)
 
 ## read students data ----------------------------------------------------------------
 
+set.seed(123)
 de_cities <- read.csv("data/de.csv") %>%
   select(city, admin_name, capital, lat, lng) %>%
-  filter((capital %in% c("admin", "primary")) | runif(n())>.66) %>%
-  tidyr::expand_grid(jahr = 2000:2015) %>%
+  filter((capital %in% c("admin", "primary")) | runif(n())>.97) %>%
+  tidyr::expand_grid(jahr = 2000:2019) %>%
   mutate(pers_ID = 1) %>%
   st_as_sf(coords = c('lng','lat'), crs = 4326)
 
@@ -94,7 +97,7 @@ calculate_distance <- function(students_df, schools_df, year, school_type) {
 
 
   resulting_df <- students_df_comb %>%
-    bind_cols(st_drop_geometry(schools_df_subset), .name_repair = "minimal") %>%
+    cbind(st_drop_geometry(schools_df_subset)) %>%
     mutate(dist = dist)
 
 
@@ -104,24 +107,34 @@ calculate_distance <- function(students_df, schools_df, year, school_type) {
 
 if (interactive()) {
   if (FALSE) debugonce(calculate_distance)
-  x <- calculate_distance(students_df = de_cities,
+  x2010 <- calculate_distance(students_df = de_cities,
                           schools_df = schooldata,
                           year = 2010,
                           school_type = "gs_oeff")
 
-  mean(x$dist)
-  View(x)
-  rm(x)
+  mean(x2010$dist)
+  View(x2010)
+  x2000 <- calculate_distance(students_df = de_cities,
+                          schools_df = schooldata,
+                          year = 2000,
+                          school_type = "gs_oeff")
+  mean(x2000$dist)
+  View(x2000)
+
+
+  rm(x2000,x2010)
 }
 
+## Run distance calculations -----
+
 # define variables
-year_start <- 2000
-year_end   <- 2019
+year_start <- 2003
+year_end   <- 2006
 
 
 list_of_raw_data_frames <- list()
 list_of_yearly_data_frames <- list()
-for (year in seq(year_start, year_end)) {
+for (year in seq(year_start, year_end, by = 5)) {
   for (school_type in school_types) {
     cat(year, ": ", school_type, "\n")
 
@@ -155,14 +168,15 @@ for (year in seq(year_start, year_end)) {
   # 2. step: merge this yearly data with a data set that is called merge_data
   for (school_type in school_types[c(2:6)]) {
 
-    cat(".")
+    cat(school_type, "\n")
     merge_data_name <- paste("data", year, school_type, sep = "_")
+    cat("merged\n")
     merge_data <- list_of_raw_data_frames[[merge_data_name]]
 
     yearly_data <- merge(x = as.data.frame(yearly_data),
                          y = as.data.frame(merge_data),
-                         by = c("pers_ID", "jahr"), all.x. = TRUE
-    )
+                         by = c("pers_ID", "jahr"),
+                         all.x. = TRUE)
   }
 
   name_of_data <- paste("data", year, sep = "_")
