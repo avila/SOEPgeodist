@@ -2,14 +2,14 @@
 
 library(sf)
 library(haven)
-library(RANN)
+#library(RANN)
 library(dplyr)
 library(data.table)
 library(readxl)
 library(readstata13)
 library(geosphere)
 library(foreign)
-library(gtools)
+#library(gtools)
 library(dplyr)
 
 
@@ -25,7 +25,7 @@ path_states <- '~/transfer/import/2020-02-27'
 
 # read data ---------------------------------------------------------------
 
-Schulen <- readxl::read_excel(file.path(path_schools, 'schulen_komplett.xlsx'), 
+Schulen <- readxl::read_excel(file.path(path_schools, 'schulen_komplett.xlsx'),
                               # manual definition of typesto avoid warnings, as
                               # priv_shule_typ was falsely bein read as logical
                               # and not text due to missings.
@@ -53,7 +53,7 @@ studentsdata <- read_sf(file.path(path_data, 'soep36'),
 # wrangle with coordinates ------------------------------------------------
 
 st_crs(studentsdata)
-st_crs(Schools) <- 4326 #EPSG:4326 WGS 84 -- WGS84 - World Geodetic System 1984, used in GPS 
+st_crs(Schools) <- 4326 #EPSG:4326 WGS 84 -- WGS84 - World Geodetic System 1984, used in GPS
 schooldata <- st_transform(Schools, st_crs(studentsdata))
 st_crs(schooldata)
 
@@ -119,7 +119,7 @@ school_types <- unique(schooldata$schultyp)
 # save intermediate data --------------------------------------------------
 
 (fname_Rdata <- paste0("data/intermediate/inter_", format(Sys.time(), "%Y_%m_%d"), ".Rdata"))
-save(Schools, Schulen, studentsdata, schooldata, 
+save(Schools, Schulen, studentsdata, schooldata,
      file = fname_Rdata)
 
 
@@ -132,36 +132,36 @@ if (FALSE) {
 if (FALSE) {
   # test args
   year <- 2010
-  school_type <- "gs_oeff"  
+  school_type <- "gs_oeff"
 }
 
 ## define function
 calculate_distance <- function(year, school_type)  {
-  
-  # school data 
-  schooldata_comb <- schooldata %>% 
-    filter(year == jahr, 
-           school_type== schultyp) 
-  
+
+  # school data
+  schooldata_comb <- schooldata %>%
+    filter(year == jahr,
+           school_type== schultyp)
+
   # students
-  studentsdata_comb <- studentsdata %>% 
+  studentsdata_comb <- studentsdata %>%
     filter(year == jahr)
-  
-  
+
+
   nearest_school <- st_nearest_feature(studentsdata_comb,
                                        schooldata_comb)
-  
+
   dist <- st_distance(studentsdata_comb,
                       schooldata_comb[nearest_school,],
                       by_element = TRUE)
-  
+
   studentsdata_comb <- cbind(studentsdata_comb,
                              st_drop_geometry(schooldata_comb)[nearest_school,])
-  
+
   studentsdata_comb$dist <- dist
   # convert to data table
   studentsdata_comb <- as.data.table(studentsdata_comb)
-  
+
   return(studentsdata_comb)
 }
 
@@ -181,51 +181,51 @@ list_of_yearly_data_frames <- list()
 for (year in seq(year_start, year_end)) {
   for (school_type in school_types) {
     cat(year, ": ", school_type, "\n")
-    
+
     data <- calculate_distance(year = year, school_type = school_type)
-    
+
     # delete all variables but student ID, year, distance and private school type
-    data <- data %>% dplyr::select(pers_ID, jahr, 
+    data <- data %>% dplyr::select(pers_ID, jahr,
                                    dist, bundesland, priv_schule_typ)
-    
+
     # rename the distance variable and the varibale concerning the private school type
     names(data)[2] <- "jahr"
     names(data)[3] <- paste("distance", school_type, sep = "_")
     names(data)[4] <- paste("bundesland", school_type, sep = "_")
     names(data)[5] <- paste("privtyp", school_type, sep = "_")
-    
+
     name_of_data <- paste("data", year, school_type, sep = "_")
-    list_of_raw_data_frames[[name_of_data]] <- data 
+    list_of_raw_data_frames[[name_of_data]] <- data
   }
-  
+
   #assign(name_of_data, data)
-  
-  
+
+
   # second loop that merges all the datasets
-  
+
   # 1. step: Take the list that contains info about public elementary and store them in yearly_data
-  
+
   year_data_name <- paste("data", year, "gs_oeff", sep = "_")
   yearly_data <- list_of_raw_data_frames[[year_data_name]]
-  
-  
+
+
   # 2. step: merge this yearly data with a dataset that is called merge_data
   for (school_type in school_types[c(2:6)]) {
     merge_data_name <- paste("data", year, school_type, sep = "_")
     merge_data <- list_of_raw_data_frames[[merge_data_name]]
-    
+
     yearly_data <-     merge(yearly_data, merge_data,
                              by = c("pers_ID","jahr"), all.x. = TRUE)
   }
-  
+
   name_of_data <- paste("data", year, sep = "_")
-  list_of_yearly_data_frames[[name_of_data]] <- yearly_data 
+  list_of_yearly_data_frames[[name_of_data]] <- yearly_data
 }
 
 # 3. step: append on all these yearly datasets to an export dataset
 export_data <- NULL
 for (year in seq(year_start, year_end)) {
-  append_data_name <- paste("data", year, sep = "_") 
+  append_data_name <- paste("data", year, sep = "_")
   export_data <- rbind(export_data, list_of_yearly_data_frames[[append_data_name]])
 }
 
