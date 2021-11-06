@@ -19,6 +19,7 @@ if (Sys.getenv("USERNAME")=="avila") {
   path_data <- 'data'
   path_schools <- 'data'
   path_states <- '##'
+  path_cities <- "data"
 }
 
 # read data ---------------------------------------------------------------
@@ -61,8 +62,7 @@ st_crs(schooldata)
 
 ## read students data ----------------------------------------------------------------
 
-set.seed(123)
-de_cities <- read.csv("data/de.csv") %>%
+de_cities <- read.csv(file.path(path_cities, "de.csv")) %>%
   select(city, admin_name, capital, lat, lng, population) %>%
   group_by(admin_name) %>%
   mutate(pop_rank = order(population, decreasing = TRUE)) %>%
@@ -70,7 +70,7 @@ de_cities <- read.csv("data/de.csv") %>%
   #filter(city=="Berlin") %>%
   select(-c(pop_rank, population)) %>%
   #filter((capital %in% c("admin", "primary")) | runif(n())>.80) %>%
-  tidyr::expand_grid(jahr = 2000:2019) %>%
+  tidyr::expand_grid(jahr = 2000:2020) %>%
   mutate(pers_ID = 1) %>%
   st_as_sf(coords = c('lng','lat'), crs = 4326)
 
@@ -140,6 +140,67 @@ calc_dist_to_school_type <- function(school_type, df_ind, df_schools, year) {
   ## Done!
   return(df_results)
 }
+
+
+# drop invalid  state/year
+germany_shp <- st_read("misc/vign/NUTS_RG_03M_2021_4326_LEVL_1.shp") %>%
+  filter(CNTR_CODE=="DE")
+
+schools_minmax <- schools_raw %>%
+  group_by(bundesland) %>%
+  summarise(
+    ymin = min(jahr),
+    ymax = max(jahr)
+  )
+
+schools_unique_years <- schools_raw %>%
+  select(bundesland, jahr) %>%
+  unique() %>%
+  tidylog::mutate(
+    NUTS_NAME = case_when(
+      bundesland == "bawue"            ~ "Baden-Württemberg",
+      bundesland == "bayern"           ~ "Bayern",
+      bundesland == "berlin"           ~ "Berlin",
+      bundesland == "brandenburg"      ~ "Brandenburg",
+      bundesland == "bremen"           ~ "Bremen",
+      bundesland == "hamburg"          ~ "Hamburg",
+      bundesland == "hessen"           ~ "Hessen",
+      bundesland == "meckpomm"         ~ "Mecklenburg-Vorpommern",
+      bundesland == "niedersachsen"    ~ "Niedersachsen",
+      bundesland == "nrw"              ~ "Nordrhein-Westfalen",
+      bundesland == "rp"               ~ "Rheinland-Pfalz",
+      bundesland == "saarland"         ~ "Saarland",
+      bundesland == "sachsen"          ~ "Sachsen",
+      bundesland == "sachsenanhalt"    ~ "Sachsen-Anhalt",
+      bundesland == "sh"               ~ "Schleswig-Holstein",
+      bundesland == "thueringen"       ~ "Thüringen"
+    )
+  )
+
+germany_shp$NUTS_NAME %>% sort
+schools_raw$bundesland %>% unique() %>% sort()
+
+de_cities_only_valid_years <- de_cities %>%
+  st_join(germany_shp, join = st_within) %>%
+  tidylog::inner_join(schools_unique_years)
+
+if (interactive()) {
+  View(de_cities_only_valid_years)
+  View(de_cities)
+}
+
+
+de_cities_only_valid_years
+de_cities_minmax <- de_cities_only_valid_years %>% sf::st_drop_geometry() %>%
+  select(bundesland, jahr) %>%
+  group_by(bundesland) %>%
+  summarise(
+    ymin = min(jahr),
+    ymax = max(jahr)
+  )
+
+stopifnot(all_equal(de_cities_minmax, schools_minmax))
+
 
 # Consolidate final data frame ------------------------------------------------------
 
@@ -334,7 +395,7 @@ schooldata %>%
   ) +
   geom_line() + geom_point() +
   #scale_y_log10() +
-  facet_wrap(~bundesland, scales="free") +
+  facet_wrap(~bundesland, scales="free_y") +
   ggtitle("number of schools by federal state")
 
 
@@ -354,7 +415,7 @@ final_joined_latlon %>% as.data.frame() %>%
   ggplot() +
   geom_line(aes(x = jahr, y = dist_mean, col = schultyp)) +
   #geom_line(aes(x = jahr, y = n, col = "n")) +
-  facet_wrap(~bundesland, scales = "free") +
+  facet_wrap(~bundesland, scales = "free_y") +
   ggtitle("avg distance of schools to fixed city locations (in meters)")
 
 ggsave(
@@ -363,46 +424,13 @@ ggsave(
 )
 
 
-final_joined_latlon %>% as.data.frame() %>%
-  group_by(bundesland, jahr, schultyp) %>%
-  summarise(
-    dist_mean = mean(dist, na.rm = FALSE),
-  )
-
-
-final_joined_latlon %>% as.data.frame() %>%
-  mutate(dist_KM = dist/1e3,2) %>%
-  arrange(jahr) %>%
-  group_by(jahr, bundesland) %>%
-  summarise(
-    mean_dist_KM = mean(dist_KM, na.rm = FALSE) %>% round(2),
-  ) %>%
-  pivot_wider(names_from = "jahr", values_from = "mean_dist_KM") %>%
-  arrange(bundesland) %>% View()
-ggs
-
-
-
-
-
-
-
-schooldata %>%
-  filter(bundesland=="hessen") %>%
-  filter(jahr>=2003 & jahr <= 2006) %>%
-  ggplot() +
-  geom_sf(aes(col = schultyp, alpha =.3)) +
-  facet_wrap(~jahr)
-
-
-
+## fixing from the "individual" side (here: cities)
 final_joined_latlon %>%
-  #filter(admin_name=="Berlin") %>%
-  filter(!is.na(admin_name)) %>%
+  #filter(stringr::str_detect(schultyp, "oeff")) %>%
   group_by(admin_name, jahr, schultyp) %>%
   summarise(mean_dist = mean(dist)) %>%
   ggplot(aes(x = jahr, y=mean_dist, col = schultyp)) +
   geom_line() +
-  facet_wrap(~admin_name)
+  facet_wrap(~admin_name, scales = "free_y")
 
 

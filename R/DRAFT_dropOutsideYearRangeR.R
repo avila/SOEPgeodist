@@ -1,12 +1,6 @@
 germany_shp <- st_read("misc/vign/NUTS_RG_03M_2021_4326_LEVL_1.shp") %>%
   filter(CNTR_CODE=="DE")
 
-### some checks
-st_crs(germany_shp)
-st_geometry_type(germany_shp)
-st_bbox(germany_shp)
-
-
 schools_minmax <- schools_raw %>%
   group_by(bundesland) %>%
   summarise(
