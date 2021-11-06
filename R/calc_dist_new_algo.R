@@ -144,7 +144,7 @@ calc_dist_to_school_type <- function(school_type, df_ind, df_schools, year) {
 # Consolidate final data frame ------------------------------------------------------
 
 # nested map ----
-years <- seq(2000, 2002, 1)
+years <- seq(2000, 2019, 1)
 
 
 # this call will create a list of data frames with the calculated distances
@@ -263,11 +263,12 @@ ggsave(glue::glue("output/figs/{type_i}/map_fixed_cities.png"),
        width = 8,
        dpi = 150)
 
+
 export_plot <- TRUE
-year_min <- range(schooldata$jahr)[1]
-year_max <- range(schooldata$jahr)[2]
-#year_max <- year_min + 2
-for (year in seq(year_min, year_max-1, by = 3)) {
+year_min <- 2000
+year_max <- 2019
+
+for (year in seq(year_min, year_max, by = 1)) {
   type <- "schultyp"
   cat(glue::glue("year: {year}, type: {type}"))
   type_i <- dplyr::sym(type)
@@ -276,7 +277,6 @@ for (year in seq(year_min, year_max-1, by = 3)) {
   p <- final_joined_latlon %>%
     filter(jahr==year) %>%
     ggplot() +
-
     geom_point( # cities points
       aes(x=lon_ind, y=lat_ind,
           #col=!!type_i
@@ -286,6 +286,11 @@ for (year in seq(year_min, year_max-1, by = 3)) {
       shape = 4,
       col = "red"
       ) +
+    geom_segment(
+      aes(x = lon_ind, y=lat_ind,
+          xend=lon_school, yend=lat_school,
+          color=schultyp)
+    ) +
     geom_point( # school points
       aes(x=lon_school, y=lat_school,
           col = !!type_i),
@@ -293,7 +298,6 @@ for (year in seq(year_min, year_max-1, by = 3)) {
 
     geom_sf(
       data = germany_shp, color = "white", fill = NA, size=.5
-
     ) +
     labs(title = "Schools locations", subtitle = glue::glue("Year: {year}")) +
     theme(axis.title=element_blank())
@@ -302,7 +306,7 @@ for (year in seq(year_min, year_max-1, by = 3)) {
 
   if (export_plot) {
     cat(" exporting plot...")
-    ggsave(glue::glue("output/figs/{type_i}/map_schools_{year}_testSchoolData.png"), height = 9,
+    ggsave(glue::glue("output/figs/{type_i}/map_schools_dropped_yearstate_{year}.png"), height = 9,
            width = 8, dpi = 150)
   }
   cat("... Done!\n")
@@ -334,11 +338,17 @@ schooldata %>%
   ggtitle("number of schools by federal state")
 
 
+ggsave(
+  filename = "output/figs/schultyp/fig_nr_of_schools_by_year_state.png",
+  height = 9, width = 8, dpi = 150
+)
+
+
 
 final_joined_latlon %>% as.data.frame() %>%
   group_by(bundesland, jahr, schultyp) %>%
   summarise(
-    dist_mean = median(dist, na.rm = FALSE),
+    dist_mean = mean(dist, na.rm = FALSE),
   ) %>%
 
   ggplot() +
@@ -348,7 +358,7 @@ final_joined_latlon %>% as.data.frame() %>%
   ggtitle("avg distance of schools to fixed city locations (in meters)")
 
 ggsave(
-  filename = "output/figs/art_reduziert/fig_average_dist_by_bula_year.png",
+  filename = "output/figs/schultyp/fig_average_dist_by_bula_year.png",
   height = 9, width = 8, dpi = 150
 )
 
