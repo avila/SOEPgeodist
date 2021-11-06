@@ -62,7 +62,7 @@ set.seed(123)
 de_cities <- read.csv("data/de.csv") %>%
   select(city, admin_name, capital, lat, lng) %>%
   filter((capital %in% c("admin", "primary")) | runif(n())>.97) %>%
-  tidyr::expand_grid(jahr = 2000:2019) %>%
+  tidyr::expand_grid(jahr = 2000:2020) %>%
   mutate(pers_ID = 1) %>%
   st_as_sf(coords = c('lng','lat'), crs = 4326)
 
