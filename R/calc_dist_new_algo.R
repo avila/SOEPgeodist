@@ -28,6 +28,7 @@ if (Sys.getenv("USERNAME")=="avila") {
 
 schools_raw <- readxl::read_excel(
   file.path(path_schools, 'schulen_komplett.xlsx'),
+  #file.path(path_schools, 'schulen_testdata.xlsx'),
   # manual definition of types to avoid warnings, as
   # priv_shule_typ was falsely being read as logical
   # and not text due to missings.
@@ -44,7 +45,10 @@ schools_raw <- readxl::read_excel(
                 priv_schule_typ = "text",
                 strasse = "text",
                 traeger = "text")
-) %>% filter(jahr >= 2000)
+) %>% #filter(jahr == 2016) %>% select(-jahr) %>%
+  #tidyr::expand_grid(jahr = 2000:2019)
+  filter(jahr>=2000)
+
 
 schooldata <- st_as_sf(schools_raw, coords = c('lng','lat'), crs = 4326) %>%
   mutate(
@@ -59,14 +63,18 @@ st_crs(schooldata)
 
 set.seed(123)
 de_cities <- read.csv("data/de.csv") %>%
-  select(city, admin_name, capital, lat, lng) %>%
-  filter((capital %in% c("admin", "primary")) | runif(n())>.80) %>%
+  select(city, admin_name, capital, lat, lng, population) %>%
+  group_by(admin_name) %>%
+  mutate(pop_rank = order(population, decreasing = TRUE)) %>%
+  filter(pop_rank<=9) %>%
+  #filter(city=="Berlin") %>%
+  select(-c(pop_rank, population)) %>%
+  #filter((capital %in% c("admin", "primary")) | runif(n())>.80) %>%
   tidyr::expand_grid(jahr = 2000:2019) %>%
   mutate(pers_ID = 1) %>%
   st_as_sf(coords = c('lng','lat'), crs = 4326)
 
 
-de_cities
 st_crs(de_cities)
 
 
@@ -136,15 +144,21 @@ calc_dist_to_school_type <- function(school_type, df_ind, df_schools, year) {
 # Consolidate final data frame ------------------------------------------------------
 
 # nested map ----
-years <- seq(2000, 2019, 1)
+years <- seq(2000, 2002, 1)
 
+
+# this call will create a list of data frames with the calculated distances
 final_list_of_frames <-
   map(.x = set_names(years),
       .f = function(x)
         map(.x = school_types,
             .f = ~calc_dist_to_school_type(
               school_type = .x,
-              df_ind = de_cities,
+              df_ind = de_cities_only_valid_years %>%
+                select(
+                  c(city, admin_name, capital, jahr, pers_ID, geometry)
+                ),
+              #df_ind = de_cities,
               df_schools = schooldata,
               year = x
             )
@@ -158,6 +172,7 @@ final_list_of_frames <-
         )
   )
 
+# this will merge into one data.frame
 final_df <- final_list_of_frames %>%
   purrr::reduce(bind_rows)
 
@@ -200,13 +215,13 @@ final_joined_latlon <- final_joined %>%
 openxlsx::write.xlsx(
   x = final_df %>% select(-geometry) %>%
     mutate(across(contains("-dist"), .fns = ~round(.x, digits = 2))),
-  file = "output/data/final_distcalc_germancities_wide.xlsx",
+  file = "output/data/final_distcalc_germancities_wide_TESTSchoolData.xlsx",
   overwrite = TRUE
 )
 openxlsx::write.xlsx(
   x = final_joined_latlon %>%
     mutate(dist = round(dist, 2)),
-  file = "output/data/final_distcalc_germancities_long.xlsx",
+  file = "output/data/final_distcalc_germancities_long_TESTSchoolData.xlsx",
   overwrite = TRUE
 )
 
@@ -229,34 +244,52 @@ st_bbox(germany_shp)
 
 ## plot for all years ----
 
+### plot cities ----
+de_cities %>%
+  ggplot() +
+  geom_sf(
+    data = germany_shp, color = "white", fill = NA, size=.5
+  ) + geom_sf(
+    alpha=.1,
+    size = 2,
+    shape = 4,
+    col = "red"
+  ) +
+  labs(title = "Cities coordinates", subtitle = glue::glue("fixed for all years")) +
+  theme(axis.title=element_blank())
+
+ggsave(glue::glue("output/figs/{type_i}/map_fixed_cities.png"),
+       height = 9,
+       width = 8,
+       dpi = 150)
+
 export_plot <- TRUE
 year_min <- range(schooldata$jahr)[1]
 year_max <- range(schooldata$jahr)[2]
 #year_max <- year_min + 2
-
-for (
-  year in years #seq(year_min, year_max)
-) {
+for (year in seq(year_min, year_max-1, by = 3)) {
   type <- "schultyp"
   cat(glue::glue("year: {year}, type: {type}"))
   type_i <- dplyr::sym(type)
-  year <- 2002
+  #year <- 2002
 
   p <- final_joined_latlon %>%
     filter(jahr==year) %>%
     ggplot() +
-    geom_point(
-      aes(x=lon_school, y=lat_school,
-          col = !!type_i),
-      alpha=.7, size = .5) +
-    geom_point(
+
+    geom_point( # cities points
       aes(x=lon_ind, y=lat_ind,
           #col=!!type_i
       ),
-      alpha=.7,
-      size = .5,
+      alpha=.5,
+      size = 1,
+      shape = 4,
       col = "red"
       ) +
+    geom_point( # school points
+      aes(x=lon_school, y=lat_school,
+          col = !!type_i),
+      alpha=.7, size = .5) +
 
     geom_sf(
       data = germany_shp, color = "white", fill = NA, size=.5
@@ -269,11 +302,10 @@ for (
 
   if (export_plot) {
     cat(" exporting plot...")
-    ggsave(glue::glue("output/figs/{type_i}/map_schools_{year}.png"), height = 9,
+    ggsave(glue::glue("output/figs/{type_i}/map_schools_{year}_testSchoolData.png"), height = 9,
            width = 8, dpi = 150)
   }
-  cat(" Done!\n")
-
+  cat("... Done!\n")
 }
 
 
@@ -283,7 +315,9 @@ schooldata %>%
   as.data.frame() %>%
   group_by(bundesland, jahr, schultyp) %>%
   summarise(n = n()) %>%
-  tidyr::pivot_wider(names_from = jahr, values_from = n)
+  tidyr::pivot_wider(names_from = jahr, values_from = n) %>%
+  filter(bundesland == "bawue")
+
 
 
 schooldata %>%
@@ -295,24 +329,24 @@ schooldata %>%
     aes(x = jahr, y = n, col = schultyp)
   ) +
   geom_line() + geom_point() +
-  scale_y_log10() +
-  facet_wrap(~bundesland) +
+  #scale_y_log10() +
+  facet_wrap(~bundesland, scales="free") +
   ggtitle("number of schools by federal state")
 
 
 
-p <- final_joined_latlon %>% as.data.frame() %>%
+final_joined_latlon %>% as.data.frame() %>%
   group_by(bundesland, jahr, schultyp) %>%
   summarise(
-    dist_mean = mean(dist, na.rm = FALSE),
+    dist_mean = median(dist, na.rm = FALSE),
   ) %>%
 
   ggplot() +
   geom_line(aes(x = jahr, y = dist_mean, col = schultyp)) +
   #geom_line(aes(x = jahr, y = n, col = "n")) +
-  facet_wrap(~bundesland) +
-  ggtitle("avg distance of schools to fixed city locations")
-p
+  facet_wrap(~bundesland, scales = "free") +
+  ggtitle("avg distance of schools to fixed city locations (in meters)")
+
 ggsave(
   filename = "output/figs/art_reduziert/fig_average_dist_by_bula_year.png",
   height = 9, width = 8, dpi = 150

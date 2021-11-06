@@ -7,38 +7,61 @@ st_geometry_type(germany_shp)
 st_bbox(germany_shp)
 
 
-xx <- de_cities %>% st_join(germany_shp, join = st_within)
-
-schools_minmax <- schools %>%
+schools_minmax <- schools_raw %>%
   group_by(bundesland) %>%
   summarise(
     ymin = min(jahr),
     ymax = max(jahr)
   )
 
-
-schools_bulaclean <- xx %>%
-    mutate(
-      bula_clean = case_when(
-        NUTS_NAME == "bawue"            ~ "Baden-Württemberg",
-        NUTS_NAME == "bayern"           ~ "Bayern",
-        NUTS_NAME == "berlin"           ~ "Berlin",
-        NUTS_NAME == "brandenburg"      ~ "Brandenburg",
-        NUTS_NAME == "bremen"           ~ "Bremen",
-        NUTS_NAME == "hamburg"          ~ "Hamburg",
-        NUTS_NAME == "hessen"           ~ "Hessen",
-        NUTS_NAME == "meckpomm"         ~ "Mecklenburg-Vorpommern",
-        NUTS_NAME == "niedersachsen"    ~ "Niedersachsen",
-        NUTS_NAME == "nrw"              ~ "Nordrhein-Westfalen",
-        NUTS_NAME == "rp"               ~ "Rheinland-Pfalz",
-        NUTS_NAME == "saarland"         ~ "Saarland",
-        NUTS_NAME == "sachsen"          ~ "Sachsen",
-        NUTS_NAME == "sachsenanhalt"    ~ "Sachsen-Anhalt",
-        NUTS_NAME == "sh"               ~ "Schleswig-Holstein",
-        NUTS_NAME == "thueringen"       ~ "Thüringen"
-      )
+schools_unique_years <- schools_raw %>%
+  select(bundesland, jahr) %>%
+  unique() %>%
+  tidylog::mutate(
+    NUTS_NAME = case_when(
+      bundesland == "bawue"            ~ "Baden-Württemberg",
+      bundesland == "bayern"           ~ "Bayern",
+      bundesland == "berlin"           ~ "Berlin",
+      bundesland == "brandenburg"      ~ "Brandenburg",
+      bundesland == "bremen"           ~ "Bremen",
+      bundesland == "hamburg"          ~ "Hamburg",
+      bundesland == "hessen"           ~ "Hessen",
+      bundesland == "meckpomm"         ~ "Mecklenburg-Vorpommern",
+      bundesland == "niedersachsen"    ~ "Niedersachsen",
+      bundesland == "nrw"              ~ "Nordrhein-Westfalen",
+      bundesland == "rp"               ~ "Rheinland-Pfalz",
+      bundesland == "saarland"         ~ "Saarland",
+      bundesland == "sachsen"          ~ "Sachsen",
+      bundesland == "sachsenanhalt"    ~ "Sachsen-Anhalt",
+      bundesland == "sh"               ~ "Schleswig-Holstein",
+      bundesland == "thueringen"       ~ "Thüringen"
     )
-schools_bulaclean
+  )
 
 germany_shp$NUTS_NAME %>% sort
-schools$bundesland %>% unique() %>% sort()
+schools_raw$bundesland %>% unique() %>% sort()
+
+de_cities_only_valid_years <- de_cities %>%
+  st_join(germany_shp, join = st_within) %>%
+  tidylog::inner_join(schools_unique_years)
+
+if (interactive()) {
+  View(de_cities_only_valid_years)
+  View(de_cities)
+}
+
+
+de_cities_only_valid_years
+
+
+de_cities_minmax <- de_cities_only_valid_years %>% sf::st_drop_geometry() %>%
+  select(bundesland, jahr) %>%
+  group_by(bundesland) %>%
+  summarise(
+    ymin = min(jahr),
+    ymax = max(jahr)
+  )
+
+all_equal(de_cities_minmax, schools_minmax)
+
+
