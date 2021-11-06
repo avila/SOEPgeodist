@@ -2,3 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# lock
+.~lock*
+
+# large files
+geomatched_schols_2021_11_03.csv
